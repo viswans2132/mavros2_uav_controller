@@ -15,7 +15,7 @@ ros2 launch mavros px4.launch fcu_url:="udp://:14540@127.0.0.1:14557"
 ````
 For some reason, the first IP works faster on my system.
 
-###NOTE: Make sure to enable the quaternion in the _<mavros_dir>/launch/px4_config.xml_.
+### NOTE: Make sure to enable the quaternion in the _<mavros_dir>/launch/px4_config.xml_.
 
 ````
 # Run the controller.
