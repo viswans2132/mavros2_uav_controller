@@ -15,7 +15,7 @@ ros2 launch mavros px4.launch fcu_url:="udp://:14540@127.0.0.1:14557"
 ````
 For some reason, the first IP works faster on my system.
 
-### NOTE: Make sure to enable the quaternion in the _<mavros_dir>/launch/px4_config.xml_.
+#### NOTE: Make sure to enable the quaternion in the _<mavros_dir>/launch/px4_config.xml_ before starting the Mavros.
 
 ````
 # Run the controller.
@@ -30,3 +30,6 @@ ros2 topic pub -r1 /new_pose --qos-reliability best_effort --qos-durability vola
 
 ### Known Issues:
 - Mavros is slow to load the parameters. It is a known issue with mavros because it creates separate nodes for each of the plugins. You may try restarting the environment or your computer. There is no fix currently.
+- /mavros/setpoint_attitude/attitude does not appear. Please set quaternions to true in _<mavros_dir>/launch/px4_config.xml_ file and restart _mavros_. Otherwise, you may send body velocity commands using _/mavros/setpoint_attitude/cmd_vel_ topic.
+- _ERROR [flight_mode_manager] Matching flight task was not able to run, Nav state: 2, Task: 1_ Probably a Connection Loss. Make sure you're using the right topics (quaternion or angular velocities) for controlling the UAV. If there is still a connection loss, you may change **COM_OF_LOSS_T** parameter to 10 seconds. This is a failsafe parameter that enables the UAV to disarm or land when the flight controller does not receive a command for the specified time (default: 1 second).
+- _Arming Denied: Manual Control Lost_ This is a failsafe to deny arming while RC is not available. In case of Simulation, please reset the parameter **COM_RCL_EXCEPT** to 4 for overriding the manual input during _OFFBOARD_ mode. **Caution: NEVER DO THIS WHILE USING ACTUAL HARDWARE. DANGEROUS!!!**
