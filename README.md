@@ -10,7 +10,10 @@ make px4_sitl gz_x500
 ````
 # Run mavros with localhost to connect to the simulated UAV.
 ros2 launch mavros px4.launch fcu_url:="udp://:14540@192.168.1.36:14557"
+# or 
+ros2 launch mavros px4.launch fcu_url:="udp://:14540@127.0.0.1:14557"
 ````
+For some reason, the first IP works faster on my system.
 
 ###NOTE: Make sure to enable the quaternion in the _<mavros_dir>/launch/px4_config.xml_.
 
