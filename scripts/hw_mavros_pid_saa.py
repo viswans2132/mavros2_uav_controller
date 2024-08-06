@@ -124,6 +124,7 @@ class OffboardControl(Node):
         self.preTime = Clock().now().nanoseconds/1E9
         self.offboardTime = Clock().now().nanoseconds/1E9
         self.dt = timerPeriod
+        self.offbCounter = 1
 
         # Gains
         self.Kpos = np.array([-1.3, -1.3, -2.0])
@@ -149,7 +150,7 @@ class OffboardControl(Node):
 
         # # FcuMode
         self.modes = fcuModes()
-        offbStatus = self.modes.set_mode('AUTO.LAND')
+        offbStatus = self.modes.set_mode('MANUAL')
 
         print("Sleeping")
         time.sleep(2)
@@ -198,7 +199,7 @@ class OffboardControl(Node):
         derVel = ((self.curVel - desVel) - self.errVel)/self.dt;
         self.errVel = self.curVel - desVel;
         self.errInt = self.errInt + self.errVel*self.dt
-        print(errPos)
+        # print(errPos)
         # print(self.errVel)
         maxInt = np.array([2, 2, 6])
         self.errInt = np.maximum(-maxInt, np.minimum(maxInt, self.errInt))
@@ -285,38 +286,89 @@ class OffboardControl(Node):
 
             # self.yaw_sp_move_rate = 0.0
             # self.att_cmd.thrust_body[2] = thrust
-            print(thrust)
-            self.attSpPub.publish(self.attSpMsg)
-            self.thrSpPub.publish(self.thrSpMsg)
+            print("Thrust: {}".format(thrust))
+            # self.attSpPub.publish(self.attSpMsg)
+            # self.thrSpPub.publish(self.thrSpMsg)
 
             # self.publisher_attitude.publish(self.att_cmd)
             
 
         elif self.offbFlag == True and self.armFlag==False:
+            # poseSpMsg = PoseStamped()
+            # poseSpMsg.pose.position.x = 0.0
+            # poseSpMsg.pose.position.y = 0.0
+            # poseSpMsg.pose.position.z = 0.0
+            # poseSpMsg.pose.orientation.x = 0.0
+            # poseSpMsg.pose.orientation.y = 0.0
+            # poseSpMsg.pose.orientation.z = 0.0
+            # poseSpMsg.pose.orientation.w = 1.0
+
+            # poseSpMsg.header.stamp = self.node.get_clock().now().to_msg()
+
+            # self.posSpPub.publish(poseSpMsg)
+
+            now = self.node.get_clock().now().to_msg()
+
+            self.attSpMsg.header.stamp = now
+            self.thrSpMsg.header.stamp = now
+
+            self.attSpMsg.pose.orientation.x = 0.0
+            self.attSpMsg.pose.orientation.y = 0.0
+            self.attSpMsg.pose.orientation.z = 0.0
+            self.attSpMsg.pose.orientation.w = 1.0
+
+            self.thrSpMsg.thrust = 0.5
+            self.attSpPub.publish(self.attSpMsg)
+            self.thrSpPub.publish(self.thrSpMsg)
+
+
+
             # print('Arming')
             # print("Not armed yet")
             armStatus = self.modes.set_arm(True)
+            pass
             # print('Arming Status: {}'.format(armStatus))
 
+         
         else:
-            poseSpMsg = PoseStamped()
-            poseSpMsg.pose.position.x = self.posSp[0]
-            poseSpMsg.pose.position.y = self.posSp[1]
-            poseSpMsg.pose.position.z = self.posSp[2]
-            poseSpMsg.pose.orientation.x = 0.0
-            poseSpMsg.pose.orientation.y = 0.0
-            poseSpMsg.pose.orientation.z = 0.0
-            poseSpMsg.pose.orientation.w = 1.0
+            # poseSpMsg = PoseStamped()
+            # poseSpMsg.pose.position.x = 0.0
+            # poseSpMsg.pose.position.y = 0.0
+            # poseSpMsg.pose.position.z = 0.0
+            # poseSpMsg.pose.orientation.x = 0.0
+            # poseSpMsg.pose.orientation.y = 0.0
+            # poseSpMsg.pose.orientation.z = 0.0
+            # poseSpMsg.pose.orientation.w = 1.0
 
-            poseSpMsg.header.stamp = self.node.get_clock().now().to_msg()
+            # poseSpMsg.header.stamp = self.node.get_clock().now().to_msg()
+            # self.posSpPub.publish(poseSpMsg)
 
-            self.posSpPub.publish(poseSpMsg)
+            now = self.node.get_clock().now().to_msg()
 
-            offbStatus = self.modes.set_mode('OFFBOARD')
-            self.offboardTime = Clock().now().nanoseconds/1E9
+            self.attSpMsg.header.stamp = now
+            self.thrSpMsg.header.stamp = now
+
+            self.attSpMsg.pose.orientation.x = 0.0
+            self.attSpMsg.pose.orientation.y = 0.0
+            self.attSpMsg.pose.orientation.z = 0.0
+            self.attSpMsg.pose.orientation.w = 1.0
+
+            self.thrSpMsg.thrust = 0.5
+            self.attSpPub.publish(self.attSpMsg)
+            self.thrSpPub.publish(self.thrSpMsg)
+
+            
+
+            if self.offbCounter > 30:
+                if self.armFlag == False:
+                    armStatus = self.modes.set_arm(True)
+
+                offbStatus = self.modes.set_mode('OFFBOARD')
+                # print('Offboard flag: {}'.format(self.offbFlag))
+                self.offboardTime = Clock().now().nanoseconds/1E9
+            self.offbCounter = self.offbCounter + 1
 
             # print("OFFBOARD Status: {}".format(offbStatus))
-            # print('Offboard flag: {}'.format(self.offbFlag))
 
 
 
