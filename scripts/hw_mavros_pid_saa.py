@@ -113,7 +113,7 @@ class OffboardControl(Node):
         self.startYaw = 1.0
 
         # Setpoints
-        self.posSp = np.array([-0.0,-0.0, 0.6])
+        self.posSp = np.array([-0.0,-0.0, 0.8])
         self.velSp = np.array([0.0,0.0,0.0])
         self.yawSp = 0.0
         self.homePos = np.array([0,0,-0.05])
@@ -128,13 +128,13 @@ class OffboardControl(Node):
         self.offbCounter = 1
 
         # Gains
-        self.Kpos = np.array([-1.2, -1.2, -1.3])
-        self.Kvel = np.array([-0.24, -0.24, -1.0])
+        self.Kpos = np.array([-0.8, -0.8, -1.0])
+        self.Kvel = np.array([-0.3, -0.3, -1.2])
         # self.Kder = np.array([-0.1, -0.1, -0.5])
         # self.Kint = np.array([-0.1, -0.1, -0.3])
-        self.Kder = np.array([-0.0, -0.0, -0.0])
-        self.Kint = np.array([-0.0, -0.0, -0.0])
-        self.normThrustConst = 0.051
+        self.Kder = np.array([-0.0, -0.0, -0.3])
+        self.Kint = np.array([-0.0, -0.0, -0.3])
+        self.normThrustConst = 0.05
 
         # Msg Variables
         # self.data_out = PlotDataMsg()
