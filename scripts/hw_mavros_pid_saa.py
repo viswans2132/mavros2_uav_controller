@@ -129,12 +129,12 @@ class OffboardControl(Node):
         self.offbCounter = 1
 
         # Gains
-        self.Kpos = np.array([-0.8, -0.8, -1.0])
-        self.Kvel = np.array([-0.3, -0.3, -1.2])
-        # self.Kder = np.array([-0.1, -0.1, -0.5])
-        # self.Kint = np.array([-0.1, -0.1, -0.3])
-        self.Kder = np.array([-0.03, -0.03, -0.25])
-        self.Kint = np.array([-0.1, -0.1, -0.4])
+        self.Kpos = np.array([-0.95, -0.95, -1.2])
+        self.Kvel = np.array([-0.4, -0.4, -1.2])
+        self.Kder = np.array([-0.0, -0.0, -0.2])
+        self.Kint = np.array([-0.05, -0.05, -0.3])
+        # self.Kder = np.array([-0.06, -0.06, -0.4])
+        # self.Kint = np.array([-0.2, -0.2, -0.4])
         self.normThrustConst = 0.05
 
         # Msg Variables
@@ -176,6 +176,11 @@ class OffboardControl(Node):
         self.curOrien = np.array([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])
         self.yaw = euler_from_quaternion(self.curOrien)[2]
         self.R = quaternion_matrix(self.curOrien)[:-1, :-1]
+
+        if self.odomFlag == False:
+            self.posSp[0] = self.curPos[0]
+            self.posSp[1] = self.curPos[1]
+            print(self.posSp)
         self.odomFlag = True
 
     def sp_position_callback(self, msg):
@@ -231,7 +236,7 @@ class OffboardControl(Node):
         # print(dA)
 
         # Lines to copy
-        maxDes = np.array([0.2, 0.2, 5])
+        maxDes = np.array([0.25, 0.25, 5])
         dA = np.maximum(-maxDes,(np.minimum(maxDes, dA)))
 
         if np.linalg.norm(dA) > self.maxAcc:
