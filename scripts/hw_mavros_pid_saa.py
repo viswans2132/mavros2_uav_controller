@@ -17,6 +17,7 @@ from mavros_msgs.srv import CommandBool, SetMode
 from mavros_msgs.msg import Thrust, State
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import Point, Pose, PoseStamped, Twist, TwistStamped, Vector3
+from std_msgs.msg import Int8
 
 
 # Flight modes class
@@ -86,7 +87,7 @@ class OffboardControl(Node):
         # Subscribers
         self.odomSub = self.create_subscription(Odometry, '/mavros/local_position/odom', self.vehicle_odometry_callback, qos_profile_volatile)
         # self.odomSub = self.create_subscription(Odometry, '/shafterx2/odometry/imu', self.vehicle_odometry_callback, qos_profile_volatile)
-        self.posSpSub = self.create_subscription(PoseStamped, '/new_pose', self.sp_position_callback, qos_profile_volatile)
+        self.posSpSub = self.create_subscription(Int8, '/new_pose', self.sp_position_callback, qos_profile_volatile)
         self.stateSub = self.create_subscription(State, '/mavros/state', self.state_callback, qos_profile_transient)
 
         #Publishers
@@ -132,8 +133,8 @@ class OffboardControl(Node):
         self.Kvel = np.array([-0.3, -0.3, -1.2])
         # self.Kder = np.array([-0.1, -0.1, -0.5])
         # self.Kint = np.array([-0.1, -0.1, -0.3])
-        self.Kder = np.array([-0.0, -0.0, -0.3])
-        self.Kint = np.array([-0.0, -0.0, -0.3])
+        self.Kder = np.array([-0.03, -0.03, -0.25])
+        self.Kint = np.array([-0.1, -0.1, -0.4])
         self.normThrustConst = 0.05
 
         # Msg Variables
@@ -178,7 +179,10 @@ class OffboardControl(Node):
         self.odomFlag = True
 
     def sp_position_callback(self, msg):
-        self.posSp = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z])
+        # self.posSp = np.array([msg.position.x, msg.position.y, msg.position.z])
+        self.posSp[0] = 0.0
+        self.posSp[1] = -1.0
+        print("New setpoint received")
 
     def set_offboard(self):
         pass
@@ -203,6 +207,15 @@ class OffboardControl(Node):
         # print(self.errVel)
         maxInt = np.array([2, 2, 6])
         self.errInt = np.maximum(-maxInt, np.minimum(maxInt, self.errInt))
+
+        if self.curPos[2] < 0.2:
+            derVel = np.zeros((3,))
+            self.errInt[0] = 0.0
+            self.errInt[1] = 0.0
+            self.Kint[2] = -0.1
+        else:            
+            self.Kint[2] = -0.5
+
 
         desA = np.zeros((3,))
 
