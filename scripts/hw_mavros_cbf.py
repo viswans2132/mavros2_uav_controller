@@ -5,6 +5,7 @@ __contact__ = "vissan@ltu.se"
 
 import rclpy
 import numpy as np
+import cvxpy as cp
 from tf_transformations import *
 import time
 import mavros
@@ -114,7 +115,7 @@ class OffboardControl(Node):
         self.startYaw = 1.0
 
         # Setpoints
-        self.posSp = np.array([-0.0,-0.0, 1.2])
+        self.posSp = np.array([-0.0,-0.0, 0.8])
         self.velSp = np.array([0.0,0.0,0.0])
         self.yawSp = 0.0
         self.homePos = np.array([0,0,-0.05])
@@ -135,6 +136,9 @@ class OffboardControl(Node):
         self.Kint = np.array([-0.05, -0.05, -0.4])
         # self.Kder = np.array([-0.06, -0.06, -0.4])
         # self.Kint = np.array([-0.2, -0.2, -0.4])
+
+        self.Krate = 2.0
+        self.Kscale = 2.0
         self.normThrustConst = 0.05
 
         # Msg Variables
@@ -147,6 +151,7 @@ class OffboardControl(Node):
         self.offbFlag = False
         self.armFlag = False
         self.missionFlag = False
+        self.filterFlag = False
         self.odomFlag = False
         self.home = False
         self.state = State()
@@ -186,11 +191,53 @@ class OffboardControl(Node):
     def sp_position_callback(self, msg):
         # self.posSp = np.array([msg.position.x, msg.position.y, msg.position.z])
         self.posSp[0] = 0.0
-        self.posSp[1] = -1.0
+        self.posSp[1] = -2
+        self.filterFlag = True
         print("New setpoint received")
 
     def set_offboard(self):
         pass
+
+    def safety_filter(self, errPos):
+        desVel = self.Kpos * errPos
+        if self.filterFlag:
+            P = np.eye(3)
+            u = cp.Variable(3)
+
+            # R_cd = euler_matrix(self.rp[0], self.rp[1], self.yaw_sp)[:-1, :-1]
+            # errPos = R_cd.dot(errPos)
+
+            l = errPos[0]*errPos[0] + errPos[1]*errPos[1]
+
+            if l > 0.01:
+                h = errPos[2] - self.Krate*self.Kscale*l*np.exp(-self.Krate*l)
+
+                # self.dataOut.h_func = h
+
+
+                dhdx = 2*self.Krate*self.Kscale*errPos[0]*(self.Krate*l - 1)*np.exp(-self.Krate*l)
+                dhdy = 2*self.Krate*self.Kscale*errPos[1]*(self.Krate*l - 1)*np.exp(-self.Krate*l)
+                dhdz = 1
+
+                dhdp = np.array([dhdx, dhdy, dhdz])
+
+                constraints = [dhdp@u >= -1.4*h]
+                prob = cp.Problem(cp.Minimize(cp.quad_form(u-desVel, P)), constraints)
+                result = prob.solve()
+
+                desVel = u.value
+            if np.linalg.norm(errPos[:2]) < 0.15 and errPos[2] < 0.05:
+                desVel[2] = -0.1
+
+                if self.curPos[2] < 0.2:
+                    desVel[2] = -0.5
+
+
+        if np.linalg.norm(desVel) > 0.3173:
+            desVel = desVel*0.3173/np.linalg.norm(desVel)
+
+        return desVel
+
 
     def a_des(self):
         # dt = Clock().now().nanoseconds/1E9 - self.preTime
@@ -203,7 +250,9 @@ class OffboardControl(Node):
         curVel_W = self.curVel
 
         errPos = self.curPos - self.posSp
-        desVel = self.Kpos * errPos
+        # desVel = self.Kpos * errPos
+
+        desVel = self.safety_filter(errPos)
 
         derVel = ((self.curVel - desVel) - self.errVel)/self.dt;
         self.errVel = self.curVel - desVel;
