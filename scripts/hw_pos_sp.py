@@ -5,7 +5,6 @@ __contact__ = "vissan@ltu.se"
 
 import rclpy
 import numpy as np
-import cvxpy as cp
 from tf_transformations import *
 import time
 import mavros
@@ -130,19 +129,17 @@ class OffboardControl(Node):
         self.offbCounter = 1
 
         # Gains
-        self.Kpos = np.array([-0.95, -0.95, -1.2])
+        self.Kpos = np.array([-1.2, -1.2, -1.2])
         self.Kvel = np.array([-0.4, -0.4, -1.5])
         self.Kder = np.array([-0.0, -0.0, -0.3])
-        self.Kint = np.array([-0.05, -0.05, -0.4])
+        self.Kint = np.array([-0.1, -0.1, -0.4])
         # self.Kder = np.array([-0.06, -0.06, -0.4])
         # self.Kint = np.array([-0.2, -0.2, -0.4])
-
-        self.Krate = 2.0
-        self.Kscale = 2.0
         self.normThrustConst = 0.05
 
         # Msg Variables
         # self.data_out = PlotDataMsg()
+        self.posSpMsg = PoseStamped()
         self.attSpMsg = PoseStamped()
         self.thrSpMsg = Thrust()
 
@@ -151,7 +148,6 @@ class OffboardControl(Node):
         self.offbFlag = False
         self.armFlag = False
         self.missionFlag = False
-        self.filterFlag = False
         self.odomFlag = False
         self.home = False
         self.state = State()
@@ -182,111 +178,20 @@ class OffboardControl(Node):
         self.yaw = euler_from_quaternion(self.curOrien)[2]
         self.R = quaternion_matrix(self.curOrien)[:-1, :-1]
 
-        if self.odomFlag == False:
-            self.posSp[0] = self.curPos[0]
-            self.posSp[1] = self.curPos[1]
-            print(self.posSp)
+        # if self.odomFlag == False:
+        #     self.posSp[0] = self.curPos[0]
+        #     self.posSp[1] = self.curPos[1]
+        #     print(self.posSp)
         self.odomFlag = True
 
     def sp_position_callback(self, msg):
         # self.posSp = np.array([msg.position.x, msg.position.y, msg.position.z])
         self.posSp[0] = 0.0
-        self.posSp[1] = -2
-        self.filterFlag = True
+        self.posSp[1] = -1.0
         print("New setpoint received")
 
     def set_offboard(self):
         pass
-
-    def safety_filter(self, errPos):
-        desVel = self.Kpos * errPos
-        if self.filterFlag:
-            P = np.eye(3)
-            u = cp.Variable(3)
-
-            # R_cd = euler_matrix(self.rp[0], self.rp[1], self.yaw_sp)[:-1, :-1]
-            # errPos = R_cd.dot(errPos)
-
-            l = errPos[0]*errPos[0] + errPos[1]*errPos[1]
-
-            if l > 0.01:
-                h = errPos[2] - self.Krate*self.Kscale*l*np.exp(-self.Krate*l)
-
-                # self.dataOut.h_func = h
-
-
-                dhdx = 2*self.Krate*self.Kscale*errPos[0]*(self.Krate*l - 1)*np.exp(-self.Krate*l)
-                dhdy = 2*self.Krate*self.Kscale*errPos[1]*(self.Krate*l - 1)*np.exp(-self.Krate*l)
-                dhdz = 1
-
-                dhdp = np.array([dhdx, dhdy, dhdz])
-
-                constraints = [dhdp@u >= -1.4*h]
-                prob = cp.Problem(cp.Minimize(cp.quad_form(u-desVel, P)), constraints)
-                result = prob.solve()
-
-                desVel = u.value
-            if np.linalg.norm(errPos[:2]) < 0.15 and errPos[2] < 0.05:
-                desVel[2] = -0.1
-
-                if self.curPos[2] < 0.2:
-                    desVel[2] = -0.5
-
-
-        if np.linalg.norm(desVel) > 0.3173:
-            desVel = desVel*0.3173/np.linalg.norm(desVel)
-
-        return desVel
-
-
-    def a_des(self):
-        R = np.array([[np.cos(self.yaw), np.sin(self.yaw), 0], [-np.sin(self.yaw), np.cos(self.yaw), 0], [0, 0, 1]])
-        # curVel_W = R.T.dot(self.curVel)
-        curVel_W = self.curVel
-
-        errPos = self.curPos - self.posSp
-        # desVel = self.Kpos * errPos
-
-        desVel = self.safety_filter(errPos)
-
-        derVel = ((curVel_W - desVel) - self.errVel)/self.dt;
-        self.errVel = curVel_W - desVel;
-        self.errInt = self.errInt + self.errVel*self.dt
-        # print(errPos)
-        # print(self.errVel)
-        maxInt = np.array([2, 2, 6])
-        self.errInt = np.maximum(-maxInt, np.minimum(maxInt, self.errInt))
-
-        if self.curPos[2] < 0.2:
-            derVel = np.zeros((3,))
-            self.errInt[0] = 0.0
-            self.errInt[1] = 0.0
-            self.Kint[2] = -0.1
-        else:            
-            self.Kint[2] = -0.5
-
-
-        desA = np.zeros((3,))
-
-
-        desA[0] = self.Kvel[0]*self.errVel[0] + self.Kder[0]*derVel[0] + self.Kint[0]*self.errInt[0]
-        desA[1] = self.Kvel[1]*self.errVel[1] + self.Kder[1]*derVel[1] + self.Kint[1]*self.errInt[1]
-        desA[2] = self.Kvel[2]*self.errVel[2] + self.Kder[2]*derVel[2] + self.Kint[2]*self.errInt[2]
-
-        # print(desA)
-        dA = np.zeros((3,))
-
-        dA = R.dot(desA)
-        # print(dA)
-
-        # Lines to copy
-        maxDes = np.array([0.25, 0.25, 5])
-        dA = np.maximum(-maxDes,(np.minimum(maxDes, dA)))
-
-        if np.linalg.norm(dA) > self.maxAcc:
-            dA = (self.maxAcc/np.linalg.norm(dA))*dA
-
-        return (dA + self.gravity) 
 
 
     def acc2quat(self,des_a, des_yaw):
@@ -306,62 +211,44 @@ class OffboardControl(Node):
     def cmdloop_callback(self):
         if self.odomFlag:
             if(self.armFlag == True and self.offbFlag == True):
-                desA = self.a_des()
+                pos_sp = np.array([0.0, 0.0, 1.0])
 
-                yaw_rad = 0.0
-
-                yaw_diff = yaw_rad - self.yaw
-                yaw_diff = np.maximum(-0.1, np.minimum(0.1, yaw_diff))
-
-
-                yaw_ref = self.yaw + yaw_diff
-
-
-
-                r_des = self.acc2quat(desA, 0.0)
-
-               
-                zb = r_des[:,2]
-                thrust = self.normThrustConst * desA.dot(zb)
-                quatDes = quaternion_from_euler(-desA[1], desA[0], yaw_ref)
-                thrust = np.maximum(-0.8, np.minimum(thrust, 0.8))
-                # print(yaw_ref, quatDes[3])
-
-                # print(zb)
 
                 now = self.node.get_clock().now().to_msg()
 
-                self.attSpMsg.header.stamp = now
-                self.thrSpMsg.header.stamp = now
+                self.posSpMsg.header.stamp = now
+                self.posSpMsg.pose.position.x = pos_sp[0]
+                self.posSpMsg.pose.position.y = pos_sp[1]
+                self.posSpMsg.pose.position.z = pos_sp[2]
 
-                self.attSpMsg.pose.orientation.x = quatDes[0]
-                self.attSpMsg.pose.orientation.y = quatDes[1]
-                self.attSpMsg.pose.orientation.z = quatDes[2]
-                self.attSpMsg.pose.orientation.w = quatDes[3]
+                self.posSpMsg.pose.orientation.x = 0.0
+                self.posSpMsg.pose.orientation.y = 0.0
+                self.posSpMsg.pose.orientation.z = 0.0
+                self.posSpMsg.pose.orientation.w = 1.0
 
-                self.thrSpMsg.thrust = thrust
-                print("Thrust: {}".format(thrust))
-                self.attSpPub.publish(self.attSpMsg)
-                self.thrSpPub.publish(self.thrSpMsg)
+
+
+                self.posSpPub.publish(self.posSpMsg)
 
                 
 
             elif self.offbFlag == True and self.armFlag==False:
+                pos_sp = np.array([0.0, 0.0, 0.0])
                 now = self.node.get_clock().now().to_msg()
 
-                self.attSpMsg.header.stamp = now
-                self.thrSpMsg.header.stamp = now
 
-                self.attSpMsg.pose.orientation.x = 0.0
-                self.attSpMsg.pose.orientation.y = 0.0
-                self.attSpMsg.pose.orientation.z = 0.0
-                self.attSpMsg.pose.orientation.w = 1.0
+                self.posSpMsg.header.stamp = now
+                self.posSpMsg.pose.position.x = pos_sp[0]
+                self.posSpMsg.pose.position.y = pos_sp[1]
+                self.posSpMsg.pose.position.z = pos_sp[2]
 
-                self.thrSpMsg.thrust = 0.5
-                self.attSpPub.publish(self.attSpMsg)
-                self.thrSpPub.publish(self.thrSpMsg)
+                self.posSpMsg.pose.orientation.x = 0.0
+                self.posSpMsg.pose.orientation.y = 0.0
+                self.posSpMsg.pose.orientation.z = 0.0
+                self.posSpMsg.pose.orientation.w = 1.0
 
 
+                self.posSpPub.publish(self.posSpMsg)
 
                 # print('Arming')
                 # print("Waiting to be armed")
@@ -371,19 +258,22 @@ class OffboardControl(Node):
 
              
             else:
+                pos_sp = np.array([0.0, 0.0, 0.0])
                 now = self.node.get_clock().now().to_msg()
 
-                self.attSpMsg.header.stamp = now
-                self.thrSpMsg.header.stamp = now
 
-                self.attSpMsg.pose.orientation.x = 0.0
-                self.attSpMsg.pose.orientation.y = 0.0
-                self.attSpMsg.pose.orientation.z = 0.0
-                self.attSpMsg.pose.orientation.w = 1.0
+                self.posSpMsg.header.stamp = now
+                self.posSpMsg.pose.position.x = pos_sp[0]
+                self.posSpMsg.pose.position.y = pos_sp[1]
+                self.posSpMsg.pose.position.z = pos_sp[2]
 
-                self.thrSpMsg.thrust = 0.5
-                self.attSpPub.publish(self.attSpMsg)
-                self.thrSpPub.publish(self.thrSpMsg)
+                self.posSpMsg.pose.orientation.x = 0.0
+                self.posSpMsg.pose.orientation.y = 0.0
+                self.posSpMsg.pose.orientation.z = 0.0
+                self.posSpMsg.pose.orientation.w = 1.0
+
+
+                self.posSpPub.publish(self.posSpMsg)
 
                 
 

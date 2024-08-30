@@ -87,10 +87,13 @@ class OdometryRelay(Node):
         self.odomSub = self.create_subscription(Odometry, '/shafterx2/odometry/imu', self.imu_odometry_callback, qos_profile_volatile)
         #Publishers
         self.odomPub = self.create_publisher(Odometry, '/mavros/odometry/out', qos_profile_volatile_reliable)
+        # self.posePub = self.create_publisher(PoseStamped, '/mavros/vision_pose/pose', qos_profile_volatile_reliable)
 
         self.odomMsg = Odometry()
         self.odomMsg.header.frame_id = 'odom'
         self.odomMsg.child_frame_id = 'base_link'
+
+        self.poseMsg = PoseStamped()
 
         rate = 30.0
 
@@ -103,8 +106,23 @@ class OdometryRelay(Node):
     def imu_odometry_callback(self, msg):
         self.odomMsg.header.stamp = msg.header.stamp
         self.odomMsg.pose = msg.pose
-        self.odomMsg.twist = msg.twist
+        quat = np.array([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])
+        R = quaternion_matrix(quat)[:-1, :-1]
+        # velLinear = R.dot(np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z]))
+        velLinear = np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z])
+        velAngular = np.array([msg.twist.twist.angular.x, msg.twist.twist.angular.y, msg.twist.twist.angular.z])
+
+
+        self.odomMsg.twist.twist.linear.x = velLinear[0]
+        self.odomMsg.twist.twist.linear.y = velLinear[1]
+        self.odomMsg.twist.twist.linear.z = velLinear[2]
+        self.odomMsg.twist.twist.angular.x = velAngular[0]
+        self.odomMsg.twist.twist.angular.y = velAngular[1]
+        self.odomMsg.twist.twist.angular.z = velAngular[2]
         self.odomPub.publish(self.odomMsg)
+        # self.poseMsg.header.stamp = msg.header.stamp
+        # self.poseMsg.pose = msg.pose.pose
+        # self.posePub.publish(self.poseMsg)
 
     def publisher_callback(self):
         pass

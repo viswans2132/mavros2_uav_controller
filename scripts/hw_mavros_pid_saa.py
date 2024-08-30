@@ -114,7 +114,7 @@ class OffboardControl(Node):
         self.startYaw = 1.0
 
         # Setpoints
-        self.posSp = np.array([-0.0,-0.0, 1.2])
+        self.posSp = np.array([-0.0,-0.0, 0.8])
         self.velSp = np.array([0.0,0.0,0.0])
         self.yawSp = 0.0
         self.homePos = np.array([0,0,-0.05])
@@ -129,10 +129,10 @@ class OffboardControl(Node):
         self.offbCounter = 1
 
         # Gains
-        self.Kpos = np.array([-0.95, -0.95, -1.2])
+        self.Kpos = np.array([-1.2, -1.2, -1.2])
         self.Kvel = np.array([-0.4, -0.4, -1.5])
         self.Kder = np.array([-0.0, -0.0, -0.3])
-        self.Kint = np.array([-0.05, -0.05, -0.4])
+        self.Kint = np.array([-0.1, -0.1, -0.4])
         # self.Kder = np.array([-0.06, -0.06, -0.4])
         # self.Kint = np.array([-0.2, -0.2, -0.4])
         self.normThrustConst = 0.05
@@ -199,7 +199,7 @@ class OffboardControl(Node):
         #     dt = 0.04
 
         R = np.array([[np.cos(self.yaw), np.sin(self.yaw), 0], [-np.sin(self.yaw), np.cos(self.yaw), 0], [0, 0, 1]])
-        # curVel_W = R.T.dot(self.curVel)
+        curVel_W = R.T.dot(self.curVel)
         curVel_W = self.curVel
 
         errPos = self.curPos - self.posSp
@@ -210,14 +210,14 @@ class OffboardControl(Node):
         self.errInt = self.errInt + self.errVel*self.dt
         # print(errPos)
         # print(self.errVel)
-        maxInt = np.array([2, 2, 6])
+        maxInt = np.array([2, 2, 4])
         self.errInt = np.maximum(-maxInt, np.minimum(maxInt, self.errInt))
 
         if self.curPos[2] < 0.2:
             derVel = np.zeros((3,))
             self.errInt[0] = 0.0
             self.errInt[1] = 0.0
-            self.Kint[2] = -0.1
+            self.errInt[2] = self.errInt[2]/2
         else:            
             self.Kint[2] = -0.5
 
