@@ -86,8 +86,8 @@ class OffboardControl(Node):
 
         # Subscribers
         self.odomSub = self.create_subscription(Odometry, '/mavros/local_position/odom', self.vehicle_odometry_callback, qos_profile_volatile)
-        # self.odomSub = self.create_subscription(Odometry, '/shafterx2/odometry/imu', self.vehicle_odometry_callback, qos_profile_volatile)
-        self.posSpSub = self.create_subscription(Int8, '/new_pose', self.sp_position_callback, qos_profile_volatile)
+        self.relaySub = self.create_subscription(Odometry, '/mavros/odometry/out', self.relay_callback, qos_profile_volatile)
+        self.posSpSub = self.create_subscription(PoseStamped, '/shafterx2/reference', self.sp_callback, qos_profile_volatile)
         self.stateSub = self.create_subscription(State, '/mavros/state', self.state_callback, qos_profile_transient)
 
         #Publishers
@@ -114,7 +114,8 @@ class OffboardControl(Node):
         self.startYaw = 1.0
 
         # Setpoints
-        self.posSp = np.array([-0.0,-0.0, 0.8])
+        self.posSp = np.array([-0.0,-0.0, 1.2])
+        self.quatSp = np.array([0.0, 0.0, 0.0, 1.0])
         self.velSp = np.array([0.0,0.0,0.0])
         self.yawSp = 0.0
         self.homePos = np.array([0,0,-0.05])
@@ -148,6 +149,7 @@ class OffboardControl(Node):
         self.offbFlag = False
         self.armFlag = False
         self.missionFlag = False
+        self.relayFlag = False
         self.odomFlag = False
         self.home = False
         self.state = State()
@@ -171,6 +173,9 @@ class OffboardControl(Node):
         if msg.mode == 'OFFBOARD':
             self.offbFlag = True
 
+    def relay_callback(self, msg):
+        self.relayFlag = True
+
     def vehicle_odometry_callback(self, msg):
         self.curPos = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z])
         self.curVel = np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z])
@@ -178,17 +183,19 @@ class OffboardControl(Node):
         self.yaw = euler_from_quaternion(self.curOrien)[2]
         self.R = quaternion_matrix(self.curOrien)[:-1, :-1]
 
-        # if self.odomFlag == False:
-        #     self.posSp[0] = self.curPos[0]
-        #     self.posSp[1] = self.curPos[1]
-        #     print(self.posSp)
+        if self.odomFlag == False:
+            self.posSp[0] = self.curPos[0]
+            self.posSp[1] = self.curPos[1]
+            print(self.posSp)
         self.odomFlag = True
 
-    def sp_position_callback(self, msg):
+    def sp_callback(self, msg):
         # self.posSp = np.array([msg.position.x, msg.position.y, msg.position.z])
-        self.posSp[0] = 0.0
-        self.posSp[1] = -1.0
-        print("New setpoint received")
+        self.posSp[0] = msg.pose.position.x
+        self.posSp[1] = msg.pose.position.y
+        quat = np.array([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])
+        self.yawSp = euler_from_quaternion(quat)[2]
+        # print('New setpoint')
 
     def set_offboard(self):
         pass
@@ -209,22 +216,40 @@ class OffboardControl(Node):
 
 
     def cmdloop_callback(self):
-        if self.odomFlag:
+        if self.odomFlag and self.relayFlag:
             if(self.armFlag == True and self.offbFlag == True):
-                pos_sp = np.array([0.0, 0.0, 1.0])
+                norm_distance = np.linalg.norm(self.posSp - self.curPos)
+                posSp_ = np.array([0,0,1.0])
+                maxNorm_ = 0.3
+                if norm_distance > maxNorm_:
+                    posSp_ = self.curPos + maxNorm_*(self.posSp - self.curPos)/norm_distance
+                else:
+                    posSp_[0] = self.posSp[0]
+                    posSp_[1] = self.posSp[1]
+                    posSp_[2] = self.posSp[2]
 
+                yawSp_ = 0.0
+                yawDiff_  = self.yawSp - self.yaw
+                yawSum_ = self.yawSp + self.yaw
+                if np.absolute(yawDiff_) > np.pi:
+                    yawDiff_ = -np.sign(yawDiff_)*(2*np.pi - yawDiff_)
+                
+                yawDiff_ = np.maximum(-0.1, np.minimum(0.1, yawDiff_))
+                yawSp_ = self.yaw + yawDiff_
+
+                self.quatSp = quaternion_from_euler(0.0, 0.0, yawSp_)
 
                 now = self.node.get_clock().now().to_msg()
 
                 self.posSpMsg.header.stamp = now
-                self.posSpMsg.pose.position.x = pos_sp[0]
-                self.posSpMsg.pose.position.y = pos_sp[1]
-                self.posSpMsg.pose.position.z = pos_sp[2]
+                self.posSpMsg.pose.position.x = posSp_[0]
+                self.posSpMsg.pose.position.y = posSp_[1]
+                self.posSpMsg.pose.position.z = posSp_[2]
 
-                self.posSpMsg.pose.orientation.x = 0.0
-                self.posSpMsg.pose.orientation.y = 0.0
-                self.posSpMsg.pose.orientation.z = 0.0
-                self.posSpMsg.pose.orientation.w = 1.0
+                self.posSpMsg.pose.orientation.x = self.quatSp[0]
+                self.posSpMsg.pose.orientation.y = self.quatSp[1]
+                self.posSpMsg.pose.orientation.z = self.quatSp[2]
+                self.posSpMsg.pose.orientation.w = self.quatSp[3]
 
 
 
@@ -252,7 +277,7 @@ class OffboardControl(Node):
 
                 # print('Arming')
                 # print("Waiting to be armed")
-                armStatus = self.modes.set_arm(True)
+                armStatus = self.modes.set_arm(True) # Here is the arming command
                 pass
                 # print('Arming Status: {}'.format(armStatus))
 

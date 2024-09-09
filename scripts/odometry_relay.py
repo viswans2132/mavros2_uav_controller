@@ -17,7 +17,7 @@ from mavros_msgs.srv import CommandBool, SetMode
 from mavros_msgs.msg import Thrust, State
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import Point, Pose, PoseStamped, Twist, TwistStamped, Vector3
-
+from sensor_msgs.msg import Range
 
 # Flight modes class
 # Flight modes are activated using ROS2 services
@@ -85,6 +85,7 @@ class OdometryRelay(Node):
 
         # Subscribers
         self.odomSub = self.create_subscription(Odometry, '/shafterx2/odometry/imu', self.imu_odometry_callback, qos_profile_volatile)
+        self.rangeSub = self.create_subscription(Range, '/sbl', self.range_callback,  qos_profile_volatile)
         #Publishers
         self.odomPub = self.create_publisher(Odometry, '/mavros/odometry/out', qos_profile_volatile_reliable)
         # self.posePub = self.create_publisher(PoseStamped, '/mavros/vision_pose/pose', qos_profile_volatile_reliable)
@@ -94,6 +95,8 @@ class OdometryRelay(Node):
         self.odomMsg.child_frame_id = 'base_link'
 
         self.poseMsg = PoseStamped()
+        self.position = np.array([0.0, 0.0, 0.0])
+        self.quat = np.array([0.0, 0.0, 0.0, 1.0])
 
         rate = 30.0
 
@@ -101,13 +104,23 @@ class OdometryRelay(Node):
         self.timer = self.create_timer(timerPeriod, self.publisher_callback)
 
         
-
+    def range_callback(self, msg):
+        [roll, pitch, yaw] = euler_from_quaternion(self.quat)
+        self.position[2] = msg.range*np.cos(roll)*np.cos(pitch)
 
     def imu_odometry_callback(self, msg):
         self.odomMsg.header.stamp = msg.header.stamp
-        self.odomMsg.pose = msg.pose
-        quat = np.array([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])
-        R = quaternion_matrix(quat)[:-1, :-1]
+        self.position[0] = msg.pose.pose.position.x
+        self.position[1] = msg.pose.pose.position.y
+        self.odomMsg.pose.pose.position.x = self.position[0]
+        self.odomMsg.pose.pose.position.y = self.position[1]
+        self.odomMsg.pose.pose.position.z = self.position[2]
+        self.quat = np.array([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])
+        self.odomMsg.pose.pose.orientation.x = self.quat[0]
+        self.odomMsg.pose.pose.orientation.y = self.quat[1]
+        self.odomMsg.pose.pose.orientation.z = self.quat[2]
+        self.odomMsg.pose.pose.orientation.w = self.quat[3]
+        R = quaternion_matrix(self.quat)[:-1, :-1]
         # velLinear = R.dot(np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z]))
         velLinear = np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z])
         velAngular = np.array([msg.twist.twist.angular.x, msg.twist.twist.angular.y, msg.twist.twist.angular.z])
