@@ -87,11 +87,12 @@ class OffboardControl(Node):
         # Subscribers
         self.odomSub = self.create_subscription(Odometry, '/mavros/local_position/odom', self.vehicle_odometry_callback, qos_profile_volatile)
         # self.odomSub = self.create_subscription(Odometry, '/shafterx2/odometry/imu', self.vehicle_odometry_callback, qos_profile_volatile)
-        self.posSpSub = self.create_subscription(Int8, '/new_pose', self.sp_position_callback, qos_profile_volatile)
+        self.posSpSub = self.create_subscription(PoseStamped, '/shafterx2/reference', self.sp_position_callback, qos_profile_volatile)
         self.stateSub = self.create_subscription(State, '/mavros/state', self.state_callback, qos_profile_transient)
 
         #Publishers
         self.posSpPub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', qos_profile_volatile)
+        self.relaySub = self.create_subscription(Odometry, '/mavros/odometry/out', self.relay_callback, qos_profile_volatile)
         self.attSpPub = self.create_publisher(PoseStamped, '/mavros/setpoint_attitude/attitude', qos_profile_volatile_reliable)
         self.thrSpPub = self.create_publisher(Thrust, '/mavros/setpoint_attitude/thrust', qos_profile_volatile_reliable)
         # self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile)
@@ -114,7 +115,7 @@ class OffboardControl(Node):
         self.startYaw = 1.0
 
         # Setpoints
-        self.posSp = np.array([-0.0,-0.0, 0.8])
+        self.posSp = np.array([-0.0,-0.0, 1.2])
         self.velSp = np.array([0.0,0.0,0.0])
         self.yawSp = 0.0
         self.homePos = np.array([0,0,-0.05])
@@ -130,11 +131,12 @@ class OffboardControl(Node):
 
         # Gains
         self.Kpos = np.array([-1.2, -1.2, -1.2])
-        self.Kvel = np.array([-0.4, -0.4, -1.5])
-        self.Kder = np.array([-0.0, -0.0, -0.3])
-        self.Kint = np.array([-0.1, -0.1, -0.4])
+        self.Kvel = np.array([-0.3, -0.3, -1.5])
+        self.Kder = np.array([-0.05, -0.05, -0.4])
+        self.Kint = np.array([-0.0, -0.0, -0.4])
         # self.Kder = np.array([-0.06, -0.06, -0.4])
         # self.Kint = np.array([-0.2, -0.2, -0.4])
+        # self.normThrustConst = 0.03
         self.normThrustConst = 0.05
 
         # Msg Variables
@@ -148,6 +150,7 @@ class OffboardControl(Node):
         self.armFlag = False
         self.missionFlag = False
         self.odomFlag = False
+        self.relayFlag = False
         self.home = False
         self.state = State()
 
@@ -170,6 +173,12 @@ class OffboardControl(Node):
         if msg.mode == 'OFFBOARD':
             self.offbFlag = True
 
+
+    def relay_callback(self, msg):
+        if self.relayFlag == False:
+            self.relayFlag = True
+            print('Relaying Odometry to MAVROS')
+
     def vehicle_odometry_callback(self, msg):
         self.curPos = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z])
         self.curVel = np.array([msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z])
@@ -185,9 +194,12 @@ class OffboardControl(Node):
 
     def sp_position_callback(self, msg):
         # self.posSp = np.array([msg.position.x, msg.position.y, msg.position.z])
-        self.posSp[0] = 0.0
-        self.posSp[1] = -1.0
+        self.posSp[0] = msg.pose.position.x
+        self.posSp[1] = msg.pose.position.y
+        quat = np.array([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])
+        self.yawSp = euler_from_quaternion(quat)[2]
         print("New setpoint received")
+        print(self.posSp)
 
     def set_offboard(self):
         pass
@@ -200,9 +212,12 @@ class OffboardControl(Node):
 
         R = np.array([[np.cos(self.yaw), np.sin(self.yaw), 0], [-np.sin(self.yaw), np.cos(self.yaw), 0], [0, 0, 1]])
         curVel_W = R.T.dot(self.curVel)
-        curVel_W = self.curVel
+        # curVel_W = self.curVel
 
         errPos = self.curPos - self.posSp
+        errPos[0] = np.minimum(np.maximum(errPos[0], -0.3), 0.3)
+        errPos[1] = np.minimum(np.maximum(errPos[1], -0.3), 0.3)
+        errPos[2] = np.minimum(np.maximum(errPos[2], -1.02), 0.05)
         desVel = self.Kpos * errPos
 
         derVel = ((self.curVel - desVel) - self.errVel)/self.dt;
@@ -211,7 +226,8 @@ class OffboardControl(Node):
         # print(errPos)
         # print(self.errVel)
         maxInt = np.array([2, 2, 4])
-        self.errInt = np.maximum(-maxInt, np.minimum(maxInt, self.errInt))
+        minInt = np.array([-2, -2, -4])
+        self.errInt = np.maximum(minInt, np.minimum(maxInt, self.errInt))
 
         if self.curPos[2] < 0.2:
             derVel = np.zeros((3,))
@@ -219,7 +235,7 @@ class OffboardControl(Node):
             self.errInt[1] = 0.0
             self.errInt[2] = self.errInt[2]/2
         else:            
-            self.Kint[2] = -0.5
+            self.Kint[2] = -0.3
 
 
         desA = np.zeros((3,))
@@ -237,7 +253,8 @@ class OffboardControl(Node):
 
         # Lines to copy
         maxDes = np.array([0.25, 0.25, 5])
-        dA = np.maximum(-maxDes,(np.minimum(maxDes, dA)))
+        minDes = np.array([-0.25, -0.25, -1.0])
+        dA = np.maximum(minDes,(np.minimum(maxDes, dA)))
 
         if np.linalg.norm(dA) > self.maxAcc:
             dA = (self.maxAcc/np.linalg.norm(dA))*dA
@@ -260,27 +277,25 @@ class OffboardControl(Node):
 
 
     def cmdloop_callback(self):
-        if self.odomFlag:
+        if self.odomFlag and self.relayFlag:
             if(self.armFlag == True and self.offbFlag == True):
                 desA = self.a_des()
 
-                yaw_rad = 0.0
-
-                yaw_diff = yaw_rad - self.yaw
-                yaw_diff = np.maximum(-0.1, np.minimum(0.1, yaw_diff))
-
-
-                yaw_ref = 0.0
-
-
-
+                yawSp_ = 0.0
+                yawDiff_  = self.yawSp - self.yaw
+                yawSum_ = self.yawSp + self.yaw
+                if np.absolute(yawDiff_) > np.pi:
+                    yawDiff_ = -np.sign(yawDiff_)*(2*np.pi - yawDiff_)
+                
+                yawDiff_ = np.maximum(-0.1, np.minimum(0.1, yawDiff_))
+                yawSp_ = self.yaw + yawDiff_
                 r_des = self.acc2quat(desA, 0.0)
 
                
                 zb = r_des[:,2]
                 thrust = self.normThrustConst * desA.dot(zb)
-                quatDes = quaternion_from_euler(-desA[1], desA[0], yaw_ref)
-                thrust = np.maximum(-0.8, np.minimum(thrust, 0.8))
+                quatDes = quaternion_from_euler(-desA[1], desA[0], yawSp_)
+                thrust = np.maximum(-0.0, np.minimum(thrust, 0.7))
                 # print(yaw_ref, quatDes[3])
 
                 # print(zb)

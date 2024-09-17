@@ -38,8 +38,8 @@ class PosePublisher(Node):
         newPoseMsg = PoseStamped()
         newPoseMsg.pose.position.x = 0.0
         newPoseMsg.pose.position.y = 0.0
-        newPoseMsg.pose.position.z = 1.2
-        yaw = -0*np.pi/2
+        newPoseMsg.pose.position.z = 0.0
+        yaw = -np.pi/2
         quat = quaternion_from_euler(0.0, 0.0, yaw)
         newPoseMsg.pose.orientation.x = quat[0]
         newPoseMsg.pose.orientation.y = quat[1]

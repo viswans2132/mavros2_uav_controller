@@ -174,7 +174,10 @@ class OffboardControl(Node):
             self.offbFlag = True
 
     def relay_callback(self, msg):
-        self.relayFlag = True
+        if self.relayFlag == False:
+            self.relayFlag = True
+            print('Relaying Odometry to MAVROS')
+
 
     def vehicle_odometry_callback(self, msg):
         self.curPos = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z])
