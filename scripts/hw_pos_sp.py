@@ -221,14 +221,19 @@ class OffboardControl(Node):
     def cmdloop_callback(self):
         if self.odomFlag and self.relayFlag:
             if(self.armFlag == True and self.offbFlag == True):
-                norm_distance = np.linalg.norm(self.posSp - self.curPos)
+                norm_distance = np.linalg.norm(self.posSp[:2] - self.curPos[:2])
                 posSp_ = np.array([0,0,1.0])
                 maxNorm_ = 0.3
                 if norm_distance > maxNorm_:
-                    posSp_ = self.curPos + maxNorm_*(self.posSp - self.curPos)/norm_distance
+                    posSp_[:2] = self.curPos[:2] + maxNorm_*(self.posSp[:2] - self.curPos[:2])/norm_distance
                 else:
                     posSp_[0] = self.posSp[0]
                     posSp_[1] = self.posSp[1]
+                errorZ_ = self.posSp[2] - self.curPos[2]
+                minErrorZ_ = -0.1
+                if errorZ_ < minErrorZ_:
+                    posSp_[2] = self.curPos[2] + minErrorZ_
+                else:
                     posSp_[2] = self.posSp[2]
 
                 yawSp_ = 0.0
