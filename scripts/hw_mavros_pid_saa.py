@@ -217,7 +217,7 @@ class OffboardControl(Node):
         errPos = self.curPos - self.posSp
         errPos[0] = np.minimum(np.maximum(errPos[0], -0.3), 0.3)
         errPos[1] = np.minimum(np.maximum(errPos[1], -0.3), 0.3)
-        errPos[2] = np.minimum(np.maximum(errPos[2], -1.02), 0.05)
+        errPos[2] = np.minimum(np.maximum(errPos[2], -1.02), 0.02)
         desVel = self.Kpos * errPos
 
         derVel = ((self.curVel - desVel) - self.errVel)/self.dt;
@@ -295,7 +295,7 @@ class OffboardControl(Node):
                 zb = r_des[:,2]
                 thrust = self.normThrustConst * desA.dot(zb)
                 quatDes = quaternion_from_euler(-desA[1], desA[0], yawSp_)
-                thrust = np.maximum(-0.0, np.minimum(thrust, 0.7))
+                thrust = np.maximum(-0.0, np.minimum(thrust, 0.75))
                 # print(yaw_ref, quatDes[3])
 
                 # print(zb)
