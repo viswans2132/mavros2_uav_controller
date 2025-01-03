@@ -86,13 +86,12 @@ class OffboardControl(Node):
 
         # Subscribers
         self.odomSub = self.create_subscription(Odometry, '/mavros/local_position/odom', self.vehicle_odometry_callback, qos_profile_volatile)
-        # self.odomSub = self.create_subscription(Odometry, '/shafterx2/odometry/imu', self.vehicle_odometry_callback, qos_profile_volatile)
-        self.posSpSub = self.create_subscription(PoseStamped, '/shafterx2/reference', self.sp_position_callback, qos_profile_volatile)
+        self.relaySub = self.create_subscription(Odometry, '/mavros/odometry/out', self.relay_callback, qos_profile_volatile)
+        self.posSpSub = self.create_subscription(PoseStamped, '/shafterx2/reference', self.sp_callback, qos_profile_volatile)
         self.stateSub = self.create_subscription(State, '/mavros/state', self.state_callback, qos_profile_transient)
 
         #Publishers
         self.posSpPub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', qos_profile_volatile)
-        self.relaySub = self.create_subscription(Odometry, '/mavros/odometry/out', self.relay_callback, qos_profile_volatile)
         self.attSpPub = self.create_publisher(PoseStamped, '/mavros/setpoint_attitude/attitude', qos_profile_volatile_reliable)
         self.thrSpPub = self.create_publisher(Thrust, '/mavros/setpoint_attitude/thrust', qos_profile_volatile_reliable)
         # self.publisher_offboard_mode = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', qos_profile)
@@ -116,6 +115,7 @@ class OffboardControl(Node):
 
         # Setpoints
         self.posSp = np.array([-0.0,-0.0, 1.2])
+        self.quatSp = np.array([0.0, 0.0, 0.0, 1.0])
         self.velSp = np.array([0.0,0.0,0.0])
         self.yawSp = 0.0
         self.homePos = np.array([0,0,-0.05])
@@ -131,16 +131,16 @@ class OffboardControl(Node):
 
         # Gains
         self.Kpos = np.array([-1.2, -1.2, -1.2])
-        self.Kvel = np.array([-0.3, -0.3, -1.5])
-        self.Kder = np.array([-0.05, -0.05, -0.4])
-        self.Kint = np.array([-0.0, -0.0, -0.4])
+        self.Kvel = np.array([-0.4, -0.4, -1.5])
+        self.Kder = np.array([-0.0, -0.0, -0.3])
+        self.Kint = np.array([-0.1, -0.1, -0.4])
         # self.Kder = np.array([-0.06, -0.06, -0.4])
         # self.Kint = np.array([-0.2, -0.2, -0.4])
-        # self.normThrustConst = 0.03
         self.normThrustConst = 0.05
 
         # Msg Variables
         # self.data_out = PlotDataMsg()
+        self.posSpMsg = PoseStamped()
         self.attSpMsg = PoseStamped()
         self.thrSpMsg = Thrust()
 
@@ -149,8 +149,8 @@ class OffboardControl(Node):
         self.offbFlag = False
         self.armFlag = False
         self.missionFlag = False
-        self.odomFlag = False
         self.relayFlag = False
+        self.odomFlag = False
         self.home = False
         self.state = State()
 
@@ -173,11 +173,11 @@ class OffboardControl(Node):
         if msg.mode == 'OFFBOARD':
             self.offbFlag = True
 
-
     def relay_callback(self, msg):
         if self.relayFlag == False:
             self.relayFlag = True
             print('Relaying Odometry to MAVROS')
+
 
     def vehicle_odometry_callback(self, msg):
         self.curPos = np.array([msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z])
@@ -192,74 +192,16 @@ class OffboardControl(Node):
             print(self.posSp)
         self.odomFlag = True
 
-    def sp_position_callback(self, msg):
+    def sp_callback(self, msg):
         # self.posSp = np.array([msg.position.x, msg.position.y, msg.position.z])
         self.posSp[0] = msg.pose.position.x
         self.posSp[1] = msg.pose.position.y
         quat = np.array([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])
         self.yawSp = euler_from_quaternion(quat)[2]
-        print("New setpoint received")
-        print(self.posSp)
+        # print('New setpoint')
 
     def set_offboard(self):
         pass
-
-    def a_des(self):
-        # dt = Clock().now().nanoseconds/1E9 - self.preTime
-        # self.preTime = self.preTime + dt
-        # if dt > 0.04:
-        #     dt = 0.04
-
-        R = np.array([[np.cos(self.yaw), np.sin(self.yaw), 0], [-np.sin(self.yaw), np.cos(self.yaw), 0], [0, 0, 1]])
-        curVel_W = R.T.dot(self.curVel)
-        # curVel_W = self.curVel
-
-        errPos = self.curPos - self.posSp
-        errPos[0] = np.minimum(np.maximum(errPos[0], -0.3), 0.3)
-        errPos[1] = np.minimum(np.maximum(errPos[1], -0.3), 0.3)
-        errPos[2] = np.minimum(np.maximum(errPos[2], -1.02), 0.02)
-        desVel = self.Kpos * errPos
-
-        derVel = ((self.curVel - desVel) - self.errVel)/self.dt;
-        self.errVel = self.curVel - desVel;
-        self.errInt = self.errInt + self.errVel*self.dt
-        # print(errPos)
-        # print(self.errVel)
-        maxInt = np.array([2, 2, 4])
-        minInt = np.array([-2, -2, -4])
-        self.errInt = np.maximum(minInt, np.minimum(maxInt, self.errInt))
-
-        if self.curPos[2] < 0.2:
-            derVel = np.zeros((3,))
-            self.errInt[0] = 0.0
-            self.errInt[1] = 0.0
-            self.errInt[2] = self.errInt[2]/2
-        else:            
-            self.Kint[2] = -0.3
-
-
-        desA = np.zeros((3,))
-
-
-        desA[0] = self.Kvel[0]*self.errVel[0] + self.Kder[0]*derVel[0] + self.Kint[0]*self.errInt[0]
-        desA[1] = self.Kvel[1]*self.errVel[1] + self.Kder[1]*derVel[1] + self.Kint[1]*self.errInt[1]
-        desA[2] = self.Kvel[2]*self.errVel[2] + self.Kder[2]*derVel[2] + self.Kint[2]*self.errInt[2]
-
-        # print(desA)
-        dA = np.zeros((3,))
-
-        dA = R.dot(desA)
-        # print(dA)
-
-        # Lines to copy
-        maxDes = np.array([0.25, 0.25, 5])
-        minDes = np.array([-0.25, -0.25, -1.0])
-        dA = np.maximum(minDes,(np.minimum(maxDes, dA)))
-
-        if np.linalg.norm(dA) > self.maxAcc:
-            dA = (self.maxAcc/np.linalg.norm(dA))*dA
-
-        return (dA + self.gravity) 
 
 
     def acc2quat(self,des_a, des_yaw):
@@ -279,7 +221,20 @@ class OffboardControl(Node):
     def cmdloop_callback(self):
         if self.odomFlag and self.relayFlag:
             if(self.armFlag == True and self.offbFlag == True):
-                desA = self.a_des()
+                norm_distance = np.linalg.norm(self.posSp[:2] - self.curPos[:2])
+                posSp_ = np.array([0,0,1.0])
+                maxNorm_ = 0.3
+                if norm_distance > maxNorm_:
+                    posSp_[:2] = self.curPos[:2] + maxNorm_*(self.posSp[:2] - self.curPos[:2])/norm_distance
+                else:
+                    posSp_[0] = self.posSp[0]
+                    posSp_[1] = self.posSp[1]
+                errorZ_ = self.posSp[2] - self.curPos[2]
+                minErrorZ_ = -0.1
+                if errorZ_ < minErrorZ_:
+                    posSp_[2] = self.curPos[2] + minErrorZ_
+                else:
+                    posSp_[2] = self.posSp[2]
 
                 yawSp_ = 0.0
                 yawDiff_  = self.yawSp - self.yaw
@@ -289,72 +244,69 @@ class OffboardControl(Node):
                 
                 yawDiff_ = np.maximum(-0.1, np.minimum(0.1, yawDiff_))
                 yawSp_ = self.yaw + yawDiff_
-                r_des = self.acc2quat(desA, 0.0)
 
-               
-                zb = r_des[:,2]
-                thrust = self.normThrustConst * desA.dot(zb)
-                quatDes = quaternion_from_euler(-desA[1], desA[0], yawSp_)
-                thrust = np.maximum(-0.0, np.minimum(thrust, 0.75))
-                # print(yaw_ref, quatDes[3])
-
-                # print(zb)
+                self.quatSp = quaternion_from_euler(0.0, 0.0, yawSp_)
 
                 now = self.node.get_clock().now().to_msg()
 
-                self.attSpMsg.header.stamp = now
-                self.thrSpMsg.header.stamp = now
+                self.posSpMsg.header.stamp = now
+                self.posSpMsg.pose.position.x = posSp_[0]
+                self.posSpMsg.pose.position.y = posSp_[1]
+                self.posSpMsg.pose.position.z = posSp_[2]
 
-                self.attSpMsg.pose.orientation.x = quatDes[0]
-                self.attSpMsg.pose.orientation.y = quatDes[1]
-                self.attSpMsg.pose.orientation.z = quatDes[2]
-                self.attSpMsg.pose.orientation.w = quatDes[3]
+                self.posSpMsg.pose.orientation.x = self.quatSp[0]
+                self.posSpMsg.pose.orientation.y = self.quatSp[1]
+                self.posSpMsg.pose.orientation.z = self.quatSp[2]
+                self.posSpMsg.pose.orientation.w = self.quatSp[3]
 
-                self.thrSpMsg.thrust = thrust
-                print("Thrust: {}".format(thrust))
-                self.attSpPub.publish(self.attSpMsg)
-                self.thrSpPub.publish(self.thrSpMsg)
+
+
+                self.posSpPub.publish(self.posSpMsg)
 
                 
 
             elif self.offbFlag == True and self.armFlag==False:
+                pos_sp = np.array([0.0, 0.0, 0.0])
                 now = self.node.get_clock().now().to_msg()
 
-                self.attSpMsg.header.stamp = now
-                self.thrSpMsg.header.stamp = now
 
-                self.attSpMsg.pose.orientation.x = 0.0
-                self.attSpMsg.pose.orientation.y = 0.0
-                self.attSpMsg.pose.orientation.z = 0.0
-                self.attSpMsg.pose.orientation.w = 1.0
+                self.posSpMsg.header.stamp = now
+                self.posSpMsg.pose.position.x = pos_sp[0]
+                self.posSpMsg.pose.position.y = pos_sp[1]
+                self.posSpMsg.pose.position.z = pos_sp[2]
 
-                self.thrSpMsg.thrust = 0.5
-                self.attSpPub.publish(self.attSpMsg)
-                self.thrSpPub.publish(self.thrSpMsg)
+                self.posSpMsg.pose.orientation.x = 0.0
+                self.posSpMsg.pose.orientation.y = 0.0
+                self.posSpMsg.pose.orientation.z = 0.0
+                self.posSpMsg.pose.orientation.w = 1.0
 
 
+                self.posSpPub.publish(self.posSpMsg)
 
                 # print('Arming')
                 # print("Waiting to be armed")
-                armStatus = self.modes.set_arm(True)
+                armStatus = self.modes.set_arm(True) # Here is the arming command
                 pass
                 # print('Arming Status: {}'.format(armStatus))
 
              
             else:
+                pos_sp = np.array([0.0, 0.0, 0.0])
                 now = self.node.get_clock().now().to_msg()
 
-                self.attSpMsg.header.stamp = now
-                self.thrSpMsg.header.stamp = now
 
-                self.attSpMsg.pose.orientation.x = 0.0
-                self.attSpMsg.pose.orientation.y = 0.0
-                self.attSpMsg.pose.orientation.z = 0.0
-                self.attSpMsg.pose.orientation.w = 1.0
+                self.posSpMsg.header.stamp = now
+                self.posSpMsg.pose.position.x = pos_sp[0]
+                self.posSpMsg.pose.position.y = pos_sp[1]
+                self.posSpMsg.pose.position.z = pos_sp[2]
 
-                self.thrSpMsg.thrust = 0.5
-                self.attSpPub.publish(self.attSpMsg)
-                self.thrSpPub.publish(self.thrSpMsg)
+                self.posSpMsg.pose.orientation.x = 0.0
+                self.posSpMsg.pose.orientation.y = 0.0
+                self.posSpMsg.pose.orientation.z = 0.0
+                self.posSpMsg.pose.orientation.w = 1.0
+
+
+                self.posSpPub.publish(self.posSpMsg)
 
                 
 
