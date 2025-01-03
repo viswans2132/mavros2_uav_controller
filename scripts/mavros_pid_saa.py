@@ -149,7 +149,7 @@ class OffboardControl(Node):
 
         # # FcuMode
         self.modes = fcuModes()
-        offbStatus = self.modes.set_mode('AUTO.LAND')
+        offbStatus = self.modes.set_mode('POSITION')
 
         print("Sleeping")
         time.sleep(2)
